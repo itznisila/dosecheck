@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DoseCheck</title>
+  <style>
+    :root {
+      --paper: #f3ecdf;
+      --ink: #1d1914;
+      --teal: #0e5f5c;
+      --card: #fffaf3;
+      --line: #ddd2c2;
+      --due: #9a3412;
+      --taken: #166534;
+      --later: #57534e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: Georgia, "Iowan Old Style", serif;
+    }
+    main {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 32px 20px 48px;
+    }
+    header p { margin: 6px 0 0; color: #5c5348; }
+    .note { font-family: "Segoe UI", sans-serif; font-size: 13px; }
+    .layout {
+      display: grid;
+      grid-template-columns: 1.3fr 0.7fr;
+      gap: 18px;
+      margin-top: 22px;
+    }
+    section {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 18px;
+    }
+    h2 {
+      margin: 0 0 12px;
+      font-family: "Segoe UI", sans-serif;
+      font-size: 15px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .bubble { margin: 0 0 12px; }
+    .bubble b { display: block; font-family: "Segoe UI", sans-serif; font-size: 12px; }
+    .you b { color: var(--teal); }
+    button {
+      display: block;
+      width: 100%;
+      margin-top: 8px;
+      padding: 12px 14px;
+      border: 0;
+      border-radius: 999px;
+      background: var(--teal);
+      color: white;
+      font: 16px "Segoe UI", sans-serif;
+      text-align: left;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.45; cursor: wait; }
+    .pill {
+      border-top: 1px solid var(--line);
+      padding: 12px 0;
+    }
+    .pill strong { display: block; }
+    .pill span { font-family: "Segoe UI", sans-serif; font-size: 13px; }
+    .due { color: var(--due); }
+    .taken { color: var(--taken); }
+    .later { color: var(--later); }
+    #log {
+      margin-top: 18px;
+      padding: 14px;
+      border-radius: 12px;
+      background: #241f1a;
+      color: #f3ecdf;
+      font: 13px Consolas, monospace;
+      white-space: pre-wrap;
+    }
+    @media (max-width: 800px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>DoseCheck</h1>
+      <p>A caregiver checking whether Mom took today's pills.</p>
+      <p class="note">Alexa+ style demo. The page is the MCP client. Not medical advice.</p>
+    </header>
+    <div class="layout">
+      <section>
+        <h2>Conversation</h2>
+        <div id="chat"></div>
+        <button id="due" disabled>What's still due for Mom?</button>
+        <button id="taken" disabled>Mark Mom's blood pressure pill as taken</button>
+        <button id="summary" disabled>Give me today's summary</button>
+      </section>
+      <section>
+        <h2>Mom's card</h2>
+        <div id="card"><p>The card fills in after the first question.</p></div>
+      </section>
+    </div>
+    <div id="log">Connecting...</div>
+  </main>
+  <script>
+    const chat = document.querySelector("#chat");
+    const card = document.querySelector("#card");
+    const log = document.querySelector("#log");
+    const buttons = [...document.querySelectorAll("button")];
+    let sessionId = null;
+    let nextId = 1;
+
+    function say(who, text) {
+      const div = document.createElement("p");
+      div.className = "bubble" + (who === "You" ? " you" : "");
+      div.innerHTML = "<b></b>";
+      div.querySelector("b").textContent = who;
+      div.append(document.createTextNode(text));
+      chat.append(div);
+    }
+
+    function note(line) {
+      log.textContent += (log.textContent === "Connecting..." ? "" : "\n") + line;
+      if (log.textContent.startsWith("Connecting...")) {
+        log.textContent = line;
+      }
+    }
+
+    async function rpc(method, params) {
+      const noteCall = method.startsWith("notifications/");
+      const body = { jsonrpc: "2.0", method };
+      if (!noteCall) body.id = nextId++;
+      if (params) body.params = params;
+      const headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream"
+      };
+      if (sessionId) {
+        headers["mcp-session-id"] = sessionId;
+        headers["mcp-protocol-version"] = "2025-11-25";
+      }
+      const res = await fetch("/mcp", {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body)
+      });
+      const sid = res.headers.get("mcp-session-id");
+      if (sid) sessionId = sid;
+      const raw = await res.text();
+      if (!res.ok) throw new Error(raw || String(res.status));
+      return raw ? JSON.parse(raw) : null;
+    }
+
+    function showCard(block) {
+      card.innerHTML = "";
+      for (const line of block.trim().split("\n")) {
+        const [name, when, state, detail] = line.split("|");
+        const div = document.createElement("div");
+        div.className = "pill";
+        const cls = state === "taken" ? "taken" : state === "due now" ? "due" : "later";
+        div.innerHTML = "<strong></strong><span></span>";
+        div.querySelector("strong").textContent = name;
+        div.querySelector("span").textContent = detail + " · " + when + " · " + state;
+        div.querySelector("span").className = cls;
+        card.append(div);
+      }
+    }
+
+    async function callTool(name, args, userLine) {
+      buttons.forEach((button) => { button.disabled = true; });
+      say("You", userLine);
+      try {
+        const result = await rpc("tools/call", { name, arguments: args });
+        note("tools/call " + name);
+        const text = result.result.content[0].text;
+        const [spoken, block] = text.split("\n\n");
+        say("DoseCheck", spoken);
+        if (block) showCard(block);
+      } catch (error) {
+        say("DoseCheck", "The call failed. Is the server still running?");
+        note(String(error));
+      }
+      buttons.forEach((button) => { button.disabled = false; });
+    }
+
+    async function connect() {
+      const init = await rpc("initialize", {
+        protocolVersion: "2025-11-25",
+        capabilities: {},
+        clientInfo: { name: "dosecheck-web", version: "0.1.0" }
+      });
+      note("initialize → " + init.result.protocolVersion);
+      await rpc("notifications/initialized");
+      note("notifications/initialized");
+      const listed = await rpc("tools/list");
+      note("tools/list → " + listed.result.tools.map((tool) => tool.name).join(", "));
+      say("DoseCheck", "Connected. Ask about Mom.");
+      buttons.forEach((button) => { button.disabled = false; });
+    }
+
+    document.querySelector("#due").onclick = () =>
+      callTool("whats_due", { person: "Mom" }, "What's still due for Mom?");
+    document.querySelector("#taken").onclick = () =>
+      callTool("mark_taken", { person: "Mom", medication: "blood pressure pill" }, "Mark Mom's blood pressure pill as taken.");
+    document.querySelector("#summary").onclick = () =>
+      callTool("todays_summary", { person: "Mom" }, "Give me today's summary.");
+
+    connect().catch((error) => {
+      note("Could not connect.\n" + error);
+    });
+  </script>
+</body>
+</html>
