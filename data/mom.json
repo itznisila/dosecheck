@@ -7,7 +7,7 @@
       "detail": "Lisinopril 10mg",
       "when": "morning",
       "due": true,
-      "taken": false
+      "taken": true
     },
     {
       "id": "vitamin-d",
