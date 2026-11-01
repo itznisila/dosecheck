@@ -3,9 +3,9 @@
 **A voice-style caregiver check-in for a parent's daily pills, built on the Model Context Protocol.**
 
 > 🏆 **Built for the Amazon Developer Hackathon 2026 (Alexa+ track).**
-> This is a hackathon demo. **It is not a medical device and gives no medical advice.**
 
 ---
+[![M8ven Score](https://m8ven.ai/badge/mcp/itznisila/dosecheck)](https://m8ven.ai/mcp/itznisila/dosecheck?s=readme)
 
 ## 📸 Screenshot
 
