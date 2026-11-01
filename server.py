@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from mcp.server import MCPServer
+from mcp.types import ToolAnnotations
 from starlette.requests import Request
 from starlette.responses import HTMLResponse
 
@@ -14,6 +15,23 @@ mcp = MCPServer(
         "Caregiver check-in for one parent's daily pills. "
         "Demo only. Not medical advice."
     ),
+)
+
+
+READ_ONLY = ToolAnnotations(
+    readOnlyHint=True,
+    destructiveHint=False,
+    idempotentHint=True,
+    openWorldHint=False,
+)
+
+# mark_taken changes the saved state, but never deletes anything, and
+# marking the same pill twice has no extra effect.
+WRITES_STATE = ToolAnnotations(
+    readOnlyHint=False,
+    destructiveHint=False,
+    idempotentHint=True,
+    openWorldHint=False,
 )
 
 
@@ -62,13 +80,13 @@ def speak(text, data):
     return text + "\n\n" + card_block(data)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 def list_people() -> str:
     """List the people this caregiver can check."""
     return "People you can check: Mom."
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 def whats_due(person: str) -> str:
     """List pills that are due now and not yet taken."""
     if person.lower().strip() != "mom":
@@ -81,7 +99,7 @@ def whats_due(person: str) -> str:
     return speak(f"Mom still needs {len(due)}: {names}.", data)
 
 
-@mcp.tool()
+@mcp.tool(annotations=WRITES_STATE)
 def mark_taken(person: str, medication: str) -> str:
     """Mark one of Mom's pills as taken."""
     if person.lower().strip() != "mom":
@@ -104,7 +122,7 @@ def mark_taken(person: str, medication: str) -> str:
     return speak(text, data)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 def todays_summary(person: str) -> str:
     """Summarize what Mom has taken and what is still due."""
     if person.lower().strip() != "mom":
